@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mini Block Blast</title>
+
+<style>
+body{
+    font-family: Arial, sans-serif;
+    text-align:center;
+    background:#222;
+    color:white;
+}
+
+#game-container{
+    display:none;
+}
+
+#game-container.active{
+    display:block;
+}
+
+#home-screen{
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+    gap:30px;
+}
+
+#home-screen.hidden{
+    display:none;
+}
+
+#game-over-screen{
+    display:none;
+    position:fixed;
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+    background:rgba(0,0,0,0.9);
+    justify-content:center;
+    align-items:center;
+    flex-direction:column;
+    gap:20px;
+    z-index:100;
+}
+
+#game-over-screen.active{
+    display:flex;
+}
+
+.big-text{
+    font-size:3em;
+    font-weight:bold;
+    margin:0;
+}
+
+.score-text{
+    font-size:2em;
+    color:#FFD700;
+}
+
+.best-score-text{
+    font-size:1.2em;
+    color:#90EE90;
+    margin:20px 0;
+}
+
+button{
+    padding:15px 40px;
+    font-size:1.2em;
+    background:#FF6B6B;
+    border:none;
+    border-radius:8px;
+    color:white;
+    cursor:pointer;
+    transition:0.3s;
+}
+
+button:hover{
+    background:#FF8888;
+    transform:scale(1.05);
+}
+
+#score-display{
+    font-size:1.2em;
+    margin-bottom:15px;
+    color:#FFD700;
+}
+
+#board{
+    display:grid;
+    grid-template-columns:repeat(9,50px);
+    grid-template-rows:repeat(9,50px);
+    gap:2px;
+    justify-content:center;
+    margin:20px auto;
+}
+
+.cell{
+    width:50px;
+    height:50px;
+    background:#444;
+    border-radius:4px;
+}
+
+.filled{
+    background:#4CAF50;
+}
+
+.cell[data-color]{
+    background:attr(data-color) !important;
+}
+
+#pieces{
+    display:flex;
+    justify-content:center;
+    gap:20px;
+    margin-top:20px;
+}
+
+.piece{
+    display:grid;
+    gap:2px;
+    cursor:grab;
+    padding:10px;
+    border:2px solid transparent;
+    user-select:none;
+}
+
+.piece:active{
+    cursor:grabbing;
+}
+
+.selected{
+    border-color:yellow;
+    box-shadow: 0 0 8px rgba(255,255,0,0.5);
+}
+
+.block{
+    width:20px;
+    height:20px;
+    background:orange;
+    border-radius:3px;
+}
+
+@keyframes disappear{
+    0%{
+        opacity:1;
+        transform:scale(1);
+    }
+    50%{
+        transform:scale(1.2) rotate(5deg);
+    }
+    100%{
+        opacity:0;
+        transform:scale(0) rotate(180deg);
+    }
+}
+
+.disappearing{
+    animation:disappear 0.5s ease-out forwards !important;
+}
+
+@keyframes appear{
+    0%{
+        opacity:0;
+        transform:scale(0) rotate(-180deg);
+    }
+    50%{
+        transform:scale(1.2);
+    }
+    100%{
+        opacity:1;
+        transform:scale(1) rotate(0deg);
+    }
+}
+
+.appearing{
+    animation:appear 0.5s ease-out forwards;
+}
+
+@keyframes victory{
+    0%{
+        transform:scale(1);
+        box-shadow:0 0 0 rgba(255,215,0,0.5);
+    }
+    50%{
+        transform:scale(1.1);
+        box-shadow:0 0 15px rgba(255,215,0,0.8);
+    }
+    100%{
+        transform:scale(1);
+        box-shadow:0 0 0 rgba(255,215,0,0);
+    }
+}
+
+.victory-flash{
+    animation:victory 0.4s ease-out forwards;
+}
+</style>
+</head>
+<body>
+
+<div id="home-screen">
+    <h1 style="font-size:3em;">🎮 Block Blast</h1>
+    <div class="best-score-text">Meilleur score: <span id="best-score-display">0</span></div>
+    <button onclick="startGame()">Jouer</button>
+</div>
+
+<div id="game-container">
+    <h1>Mini Block Blast</h1>
+    <div id="score-display">Score: 0</div>
+    <p>Sélectionne une pièce puis clique sur la grille.</p>
+    <div id="board"></div>
+    <div id="pieces"></div>
+</div>
+
+<div id="game-over-screen">
+    <h1 class="big-text">GAME OVER</h1>
+    <div class="score-text">Score: <span id="final-score">0</span></div>
+    <div class="best-score-text" id="new-record"></div>
+    <button onclick="goHome()">Accueil</button>
+    <button onclick="startGame()">Rejouer</button>
+</div>
+
+<script>
+const board = document.getElementById("board");
+const piecesContainer = document.getElementById("pieces");
+const gameContainer = document.getElementById("game-container");
+const homeScreen = document.getElementById("home-screen");
+const gameOverScreen = document.getElementById("game-over-screen");
+
+const grid = Array(9).fill().map(() => Array(9).fill(0));
+
+let score = 0;
+let bestScore = localStorage.getItem("bestScore") || 0;
+
+const shapes = [
+    [[0,0]],
+    [[0,0],[1,0]],
+    [[0,0],[0,1]],
+    [[0,0],[1,0],[2,0]],
+    [[0,0],[0,1],[0,2]],
+    [[0,0],[1,0],[0,1],[1,1]],
+    [[0,0],[1,0],[2,0],[1,1]],
+    [[0,0],[1,0],[2,0],[3,0]],
+    [[0,0],[0,1],[1,1]]
+];
+
+let selectedPiece = null;
+
+const colors = [
+    "#FF6B6B", "#4ECDC4", "#45B7D1",
+    "#FFA07A", "#98D8C8", "#F7DC6F",
+    "#BB8FCE", "#85C1E2", "#F8B88B",
+    "#52D8A8", "#FF8B94", "#A8E6CF"
+];
+
+function getRandomColor(){
+    return colors[Math.floor(Math.random()*colors.length)];
+}
+
+function updateScore(points){
+    score += points;
+    document.getElementById("score-display").textContent = "Score: " + score;
+}
+
+function canPlacePiece(piece, row, col){
+    const shape = piece.shape;
+    
+    for(const [dx,dy] of shape){
+        const r = row + dy;
+        const c = col + dx;
+        
+        if(r<0 || r>=9 || c<0 || c>=9) return false;
+        if(grid[r][c]) return false;
+    }
+    
+    return true;
+}
+
+function checkGameOver(){
+    if(document.querySelectorAll(".piece").length === 0) return false;
+    
+    const pieces = document.querySelectorAll(".piece");
+    
+    for(let piece of pieces){
+        for(let r=0;r<9;r++){
+            for(let c=0;c<9;c++){
+                if(canPlacePiece(piece, r, c)){
+                    return false;
+                }
+            }
+        }
+    }
+    
+    return true;
+}
+
+function startGame(){
+    homeScreen.classList.add("hidden");
+    gameOverScreen.classList.remove("active");
+    gameContainer.classList.add("active");
+    
+    // Réinitialiser la grille et le score
+    for(let i=0;i<9;i++){
+        for(let j=0;j<9;j++){
+            grid[i][j] = 0;
+        }
+    }
+    
+    score = 0;
+    document.getElementById("score-display").textContent = "Score: 0";
+    
+    createBoard();
+    generatePieces();
+}
+
+function goHome(){
+    homeScreen.classList.remove("hidden");
+    gameOverScreen.classList.remove("active");
+    gameContainer.classList.remove("active");
+    document.getElementById("best-score-display").textContent = bestScore;
+}
+
+function endGame(){
+    gameOverScreen.classList.add("active");
+    document.getElementById("final-score").textContent = score;
+    
+    if(score > bestScore){
+        bestScore = score;
+        localStorage.setItem("bestScore", bestScore);
+        document.getElementById("new-record").textContent = "🏆 Nouveau record!";
+    } else {
+        document.getElementById("new-record").textContent = "";
+    }
+}
+
+function createBoard(){
+    board.innerHTML = "";
+
+    for(let r=0;r<9;r++){
+        for(let c=0;c<9;c++){
+            const cell = document.createElement("div");
+            cell.className = "cell";
+
+            if(grid[r][c]){
+                cell.classList.add("filled");
+                cell.style.background = grid[r][c];
+            }
+
+            cell.addEventListener("click",()=>{
+                placePiece(r,c);
+            });
+
+            cell.addEventListener("dragover",(e)=>{
+                e.preventDefault();
+                cell.style.opacity = "0.7";
+            });
+
+            cell.addEventListener("dragleave",()=>{
+                cell.style.opacity = "1";
+            });
+
+            cell.addEventListener("drop",(e)=>{
+                e.preventDefault();
+                cell.style.opacity = "1";
+                placePiece(r,c);
+            });
+
+            board.appendChild(cell);
+        }
+    }
+}
+
+function randomShape(){
+    return JSON.parse(JSON.stringify(
+        shapes[Math.floor(Math.random()*shapes.length)]
+    ));
+}
+
+function generatePieces(){
+    piecesContainer.innerHTML="";
+
+    for(let i=0;i<3;i++){
+        const shape = randomShape();
+        const color = getRandomColor();
+
+        const piece = document.createElement("div");
+        piece.className="piece appearing";
+        piece.draggable = true;
+
+        const maxX = Math.max(...shape.map(b=>b[0]));
+        const maxY = Math.max(...shape.map(b=>b[1]));
+
+        piece.style.gridTemplateColumns =
+            `repeat(${maxX+1},20px)`;
+
+        piece.style.gridTemplateRows =
+            `repeat(${maxY+1},20px)`;
+
+        for(let y=0;y<=maxY;y++){
+            for(let x=0;x<=maxX;x++){
+                const block = document.createElement("div");
+
+                const exists = shape.some(
+                    b=>b[0]===x && b[1]===y
+                );
+
+                if(exists){
+                    block.className="block";
+                    block.style.background = color;
+                }
+
+                piece.appendChild(block);
+            }
+        }
+
+        piece.shape = shape;
+        piece.color = color;
+
+        piece.addEventListener("dragstart",(e)=>{
+            selectedPiece = piece;
+            piece.classList.add("selected");
+            e.dataTransfer.effectAllowed = "move";
+        });
+
+        piece.addEventListener("dragend",()=>{
+            piece.classList.remove("selected");
+        });
+
+        piece.addEventListener("click",()=>{
+            document.querySelectorAll(".piece")
+                .forEach(p=>p.classList.remove("selected"));
+
+            piece.classList.add("selected");
+            selectedPiece = piece;
+        });
+
+        piecesContainer.appendChild(piece);
+    }
+}
+
+function placePiece(row,col){
+    if(!selectedPiece) return;
+
+    const shape = selectedPiece.shape;
+    const color = selectedPiece.color;
+
+    if(!canPlacePiece(selectedPiece, row, col)) return;
+
+    for(const [dx,dy] of shape){
+        grid[row+dy][col+dx] = color;
+    }
+
+    // Ajouter des points pour avoir placé une pièce
+    updateScore(shape.length * 5);
+
+    selectedPiece.remove();
+    selectedPiece = null;
+
+    // Vérifier si des lignes sont effacées
+    const hadLines = clearLines();
+
+    if(!hadLines){
+        // Si aucune ligne n'a été effacée, rafraîchir immédiatement
+        createBoard();
+    }
+
+    if(document.querySelectorAll(".piece").length===0){
+        setTimeout(()=>{
+            generatePieces();
+            createBoard();
+            
+            // Vérifier le game over après génération des nouvelles pièces
+            if(checkGameOver()){
+                endGame();
+            }
+        }, 500);
+    }
+}
+
+function clearLines(){
+    const cellsToRemove = [];
+    let linesCleared = 0;
+
+    // Vérifier les lignes complètes
+    for(let r=0;r<9;r++){
+        let full = true;
+
+        for(let c=0;c<9;c++){
+            if(!grid[r][c]) full = false;
+        }
+
+        if(full){
+            linesCleared++;
+            for(let c=0;c<9;c++){
+                cellsToRemove.push([r,c]);
+                grid[r][c]=0;
+            }
+        }
+    }
+
+    // Vérifier les colonnes complètes
+    for(let c=0;c<9;c++){
+        let full = true;
+
+        for(let r=0;r<9;r++){
+            if(!grid[r][c]) full = false;
+        }
+
+        if(full){
+            linesCleared++;
+            for(let r=0;r<9;r++){
+                if(!cellsToRemove.some(cell=>cell[0]===r && cell[1]===c)){
+                    cellsToRemove.push([r,c]);
+                }
+                grid[r][c]=0;
+            }
+        }
+    }
+
+    // Ajouter l'animation aux cellules à effacer
+    if(cellsToRemove.length > 0){
+        const cells = document.querySelectorAll(".cell");
+        cellsToRemove.forEach(([r,c])=>{
+            const index = r * 9 + c;
+            cells[index].classList.add("disappearing");
+        });
+
+        // Calculer les points avec multiplicateur de combo
+        let points = cellsToRemove.length * 100;
+        let multiplier = 1;
+        
+        if(linesCleared === 2) multiplier = 1.5;
+        else if(linesCleared === 3) multiplier = 2;
+        else if(linesCleared === 4) multiplier = 2.5;
+        else if(linesCleared >= 5) multiplier = 3;
+        
+        points = Math.floor(points * multiplier);
+        
+        // Afficher le multiplicateur s'il y a combo
+        if(linesCleared > 1){
+            console.log(`🔥 COMBO x${multiplier}! +${points} points`);
+        }
+        
+        updateScore(points);
+
+        // Attendre la fin de l'animation avant de rafraîchir
+        setTimeout(()=>{
+            createBoard();
+            
+            // Vérifier si la grille est complètement vide
+            let gridEmpty = true;
+            for(let r=0;r<9;r++){
+                for(let c=0;c<9;c++){
+                    if(grid[r][c]) gridEmpty = false;
+                }
+            }
+            
+            // Si la grille est vide, ajouter l'animation de victoire
+            if(gridEmpty){
+                const allCells = document.querySelectorAll(".cell");
+                allCells.forEach((cell, index)=>{
+                    setTimeout(()=>{
+                        cell.classList.add("victory-flash");
+                    }, index * 20);
+                });
+            }
+        }, 500);
+
+        return true;
+    }
+
+    return false;
+}
+
+// Afficher le meilleur score au démarrage
+document.getElementById("best-score-display").textContent = bestScore;
+
+</script>
+
+</body>
+</html>
